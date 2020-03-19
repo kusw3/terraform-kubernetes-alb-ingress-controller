@@ -35,6 +35,12 @@ data "aws_iam_policy_document" "ec2_assume_role" {
   }
 }
 
+locals {
+  serviceaccounts = [ for ns in var.k8s_namespace:
+    "system:serviceaccount:${ns}:aws-alb-ingress-controller"
+  ]
+}
+
 data "aws_iam_policy_document" "eks_oidc_assume_role" {
   count = var.k8s_cluster_type == "eks" ? 1 : 0
   statement {
@@ -43,9 +49,7 @@ data "aws_iam_policy_document" "eks_oidc_assume_role" {
     condition {
       test     = "StringEquals"
       variable = "${replace(data.aws_eks_cluster.selected[0].identity[0].oidc[0].issuer, "https://", "")}:sub"
-      values = [
-        "system:serviceaccount:${var.k8s_namespace}:aws-alb-ingress-controller"
-      ]
+      values = local.serviceaccounts
     }
     principals {
       identifiers = [
@@ -197,10 +201,12 @@ resource "aws_iam_role_policy_attachment" "this" {
 }
 
 resource "kubernetes_service_account" "this" {
+  count = length(var.k8s_namespace)
+
   automount_service_account_token = true
   metadata {
     name      = "aws-alb-ingress-controller"
-    namespace = var.k8s_namespace
+    namespace = var.k8s_namespace[count.index]
     annotations = {
       # This annotation is only used when running on EKS which can
       # use IAM roles for service accounts.
@@ -271,6 +277,7 @@ resource "kubernetes_cluster_role" "this" {
 }
 
 resource "kubernetes_cluster_role_binding" "this" {
+  count = length(kubernetes_service_account.this)
   metadata {
     name = "aws-alb-ingress-controller"
 
@@ -289,17 +296,18 @@ resource "kubernetes_cluster_role_binding" "this" {
   subject {
     api_group = ""
     kind      = "ServiceAccount"
-    name      = kubernetes_service_account.this.metadata[0].name
-    namespace = kubernetes_service_account.this.metadata[0].namespace
+    name      = kubernetes_service_account.this[count.index].metadata[0].name
+    namespace = kubernetes_service_account.this[count.index].metadata[0].namespace
   }
 }
 
 resource "kubernetes_deployment" "this" {
   depends_on = [kubernetes_cluster_role_binding.this]
+  count = length(var.k8s_namespace)
 
   metadata {
     name      = "aws-alb-ingress-controller"
-    namespace = var.k8s_namespace
+    namespace = var.k8s_namespace[count.index]
 
     labels = {
       "app.kubernetes.io/name"       = "aws-alb-ingress-controller"
@@ -355,7 +363,7 @@ resource "kubernetes_deployment" "this" {
 
           volume_mount {
             mount_path = "/var/run/secrets/kubernetes.io/serviceaccount"
-            name       = kubernetes_service_account.this.default_secret_name
+            name       = kubernetes_service_account.this[count.index].default_secret_name
             read_only  = true
           }
 
@@ -390,14 +398,14 @@ resource "kubernetes_deployment" "this" {
         }
 
         volume {
-          name = kubernetes_service_account.this.default_secret_name
+          name = kubernetes_service_account.this[count.index].default_secret_name
 
           secret {
-            secret_name = kubernetes_service_account.this.default_secret_name
+            secret_name = kubernetes_service_account.this[count.index].default_secret_name
           }
         }
 
-        service_account_name             = kubernetes_service_account.this.metadata[0].name
+        service_account_name             = kubernetes_service_account.this[count.index].metadata[0].name
         termination_grace_period_seconds = 60
       }
     }

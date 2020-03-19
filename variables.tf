@@ -10,9 +10,9 @@ variable "k8s_cluster_name" {
 }
 
 variable "k8s_namespace" {
-  description = "Kubernetes namespace to deploy the AWS ALB Ingress Controller into."
-  type        = string
-  default     = "default"
+  description = "List of Kubernetes namespaces to deploy the AWS ALB Ingress Controller into."
+  type        = list(string)
+  default     = [ "default" ]
 }
 
 variable "aws_iam_path_prefix" {
