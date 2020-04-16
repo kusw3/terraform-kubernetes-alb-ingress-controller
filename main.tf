@@ -279,7 +279,7 @@ resource "kubernetes_cluster_role" "this" {
 resource "kubernetes_cluster_role_binding" "this" {
   count = length(kubernetes_service_account.this)
   metadata {
-    name = "aws-alb-ingress-controller"
+    name = "aws-alb-ingress-controller-${kubernetes_service_account.this[count.index].metadata[0].namespace}"
 
     labels = {
       "app.kubernetes.io/name"       = "aws-alb-ingress-controller"
